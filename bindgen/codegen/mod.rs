@@ -12,6 +12,8 @@ pub(crate) mod struct_layout;
 pub(crate) mod bitfield_unit;
 #[cfg(all(test, target_endian = "little"))]
 mod bitfield_unit_tests;
+mod macro_def;
+pub use macro_def::*;
 
 use self::dyngen::DynamicItems;
 use self::helpers::attributes;
@@ -526,6 +528,9 @@ impl CodeGenerator for Item {
             ItemKind::Var(ref var) => {
                 var.codegen(ctx, result, self);
             }
+            ItemKind::MacroDef(ref macro_def) => {
+                macro_def.codegen(ctx, result, self);
+            }
             ItemKind::Type(ref ty) => {
                 ty.codegen(ctx, result, self);
             }
@@ -660,7 +665,8 @@ impl CodeGenerator for Var {
             attrs.push(attributes::doc(comment));
         }
 
-        let ty = self.ty().to_rust_ty_or_opaque(ctx, &());
+        let var_ty = self.ty();
+        let ty = var_ty.to_rust_ty_or_opaque(ctx, &());
 
         if let Some(val) = self.val() {
             match *val {
@@ -671,8 +677,7 @@ impl CodeGenerator for Var {
                     });
                 }
                 VarType::Int(val) => {
-                    let int_kind = self
-                        .ty()
+                    let int_kind = var_ty
                         .into_resolver()
                         .through_type_aliases()
                         .through_type_refs()
@@ -2088,7 +2093,7 @@ impl CodeGenerator for CompInfo {
             if let Some(explicit) = explicit_align {
                 // Ensure that the struct has the correct alignment even in
                 // presence of alignas.
-                let explicit = helpers::ast_ty::int_expr(explicit as i64);
+                let explicit = helpers::ast_ty::int_expr(explicit as i128);
                 attributes.push(quote! {
                     #[repr(align(#explicit))]
                 });
@@ -2813,7 +2818,7 @@ impl<'a> EnumBuilder<'a> {
                 helpers::ast_ty::uint_expr(v as u64)
             }
             EnumVariantValue::Boolean(v) => quote!(#v),
-            EnumVariantValue::Signed(v) => helpers::ast_ty::int_expr(v),
+            EnumVariantValue::Signed(v) => helpers::ast_ty::int_expr(v as i128),
             EnumVariantValue::Unsigned(v) => helpers::ast_ty::uint_expr(v),
         };
 
@@ -3481,7 +3486,7 @@ impl std::str::FromStr for NonCopyUnionStyle {
 /// Implementors of this trait should provide the `try_get_layout` method to
 /// fallibly get this thing's layout, which the provided `try_to_opaque` trait
 /// method will use to convert the `Layout` into an opaque blob Rust type.
-trait TryToOpaque {
+pub(crate) trait TryToOpaque {
     type Extra;
 
     /// Get the layout for this thing, if one is available.
@@ -3512,7 +3517,7 @@ trait TryToOpaque {
 ///
 /// Don't implement this directly. Instead implement `TryToOpaque`, and then
 /// leverage the blanket impl for this trait.
-trait ToOpaque: TryToOpaque {
+pub(crate) trait ToOpaque: TryToOpaque {
     fn get_layout(&self, ctx: &BindgenContext, extra: &Self::Extra) -> Layout {
         self.try_get_layout(ctx, extra)
             .unwrap_or_else(|_| Layout::for_size(ctx, 1))
@@ -3537,7 +3542,7 @@ impl<T> ToOpaque for T where T: TryToOpaque {}
 /// const-value generic parameters) then the impl should return an `Err`. It
 /// should *not* attempt to return an opaque blob with the correct size and
 /// alignment. That is the responsibility of the `TryToOpaque` trait.
-trait TryToRustTy {
+pub(crate) trait TryToRustTy {
     type Extra;
 
     fn try_to_rust_ty(
@@ -3552,7 +3557,7 @@ trait TryToRustTy {
 ///
 /// Don't implement this directly. Instead implement `TryToRustTy` and
 /// `TryToOpaque`, and then leverage the blanket impl for this trait below.
-trait TryToRustTyOrOpaque: TryToRustTy + TryToOpaque {
+pub(crate) trait TryToRustTyOrOpaque: TryToRustTy + TryToOpaque {
     type Extra;
 
     fn try_to_rust_ty_or_opaque(
@@ -3600,7 +3605,7 @@ where
 /// `ToRustTyOrOpaque`. The further out we push error recovery, the more likely
 /// we are to get a usable `Layout` even if we can't generate an equivalent Rust
 /// type for a C++ construct.
-trait ToRustTyOrOpaque: TryToRustTy + ToOpaque {
+pub(crate) trait ToRustTyOrOpaque: TryToRustTy + ToOpaque {
     type Extra;
 
     fn to_rust_ty_or_opaque(
@@ -3708,57 +3713,7 @@ impl TryToRustTy for Type {
             // c_void is enough?
             TypeKind::NullPtr => Ok(c_void(ctx).to_ptr(true)),
             TypeKind::Int(ik) => {
-                match ik {
-                    IntKind::Bool => Ok(quote! { bool }),
-                    IntKind::Char { .. } => Ok(raw_type(ctx, "c_char")),
-                    IntKind::SChar => Ok(raw_type(ctx, "c_schar")),
-                    IntKind::UChar => Ok(raw_type(ctx, "c_uchar")),
-                    IntKind::Short => Ok(raw_type(ctx, "c_short")),
-                    IntKind::UShort => Ok(raw_type(ctx, "c_ushort")),
-                    IntKind::Int => Ok(raw_type(ctx, "c_int")),
-                    IntKind::UInt => Ok(raw_type(ctx, "c_uint")),
-                    IntKind::Long => Ok(raw_type(ctx, "c_long")),
-                    IntKind::ULong => Ok(raw_type(ctx, "c_ulong")),
-                    IntKind::LongLong => Ok(raw_type(ctx, "c_longlong")),
-                    IntKind::ULongLong => Ok(raw_type(ctx, "c_ulonglong")),
-                    IntKind::WChar => {
-                        let layout = self
-                            .layout(ctx)
-                            .expect("Couldn't compute wchar_t's layout?");
-                        let ty = Layout::known_type_for_size(ctx, layout.size)
-                            .expect("Non-representable wchar_t?");
-                        let ident = ctx.rust_ident_raw(ty);
-                        Ok(quote! { #ident })
-                    }
-
-                    IntKind::I8 => Ok(quote! { i8 }),
-                    IntKind::U8 => Ok(quote! { u8 }),
-                    IntKind::I16 => Ok(quote! { i16 }),
-                    IntKind::U16 => Ok(quote! { u16 }),
-                    IntKind::I32 => Ok(quote! { i32 }),
-                    IntKind::U32 => Ok(quote! { u32 }),
-                    IntKind::I64 => Ok(quote! { i64 }),
-                    IntKind::U64 => Ok(quote! { u64 }),
-                    IntKind::Custom { name, .. } => {
-                        Ok(proc_macro2::TokenStream::from_str(name).unwrap())
-                    }
-                    IntKind::U128 => {
-                        Ok(if ctx.options().rust_features.i128_and_u128 {
-                            quote! { u128 }
-                        } else {
-                            // Best effort thing, but wrong alignment
-                            // unfortunately.
-                            quote! { [u64; 2] }
-                        })
-                    }
-                    IntKind::I128 => {
-                        Ok(if ctx.options().rust_features.i128_and_u128 {
-                            quote! { i128 }
-                        } else {
-                            quote! { [u64; 2] }
-                        })
-                    }
-                }
+                Ok(int_kind_rust_type(ctx, ik, self.layout(ctx)))
             }
             TypeKind::Float(fk) => {
                 Ok(float_kind_rust_type(ctx, fk, self.layout(ctx)))
@@ -4072,12 +4027,7 @@ impl CodeGenerator for Function {
             result.saw_function(seen_symbol_name);
         }
 
-        let signature_item = ctx.resolve_item(self.signature());
-        let signature = signature_item.kind().expect_type().canonical_type(ctx);
-        let signature = match *signature.kind() {
-            TypeKind::Function(ref sig) => sig,
-            _ => panic!("Signature kind is not a Function: {:?}", signature),
-        };
+        let signature = ctx.resolve_sig(self.signature());
 
         let args = utils::fnsig_arguments(ctx, signature);
         let ret = utils::fnsig_return_ty(ctx, signature);
@@ -4540,6 +4490,7 @@ pub(crate) mod utils {
     use super::serialize::CSerialize;
     use super::{error, CodegenError, CodegenResult, ToRustTyOrOpaque};
     use crate::ir::context::BindgenContext;
+    use crate::ir::context::TypeId;
     use crate::ir::function::{Abi, ClangAbi, FunctionSig};
     use crate::ir::item::{Item, ItemCanonicalPath};
     use crate::ir::ty::TypeKind;
@@ -4911,7 +4862,7 @@ pub(crate) mod utils {
         })
     }
 
-    fn fnsig_return_ty_internal(
+    pub(crate) fn fnsig_return_ty_internal(
         ctx: &BindgenContext,
         sig: &FunctionSig,
         include_arrow: bool,
@@ -4957,54 +4908,60 @@ pub(crate) mod utils {
         fnsig_return_ty_internal(ctx, sig, /* include_arrow = */ true)
     }
 
+    pub(crate) fn fnsig_argument_type(
+        ctx: &BindgenContext,
+        ty: &TypeId,
+    ) -> proc_macro2::TokenStream {
+        use super::ToPtr;
+
+        let arg_item = ctx.resolve_item(ty);
+        let arg_ty = arg_item.kind().expect_type();
+
+        // From the C90 standard[1]:
+        //
+        //     A declaration of a parameter as "array of type" shall be
+        //     adjusted to "qualified pointer to type", where the type
+        //     qualifiers (if any) are those specified within the [ and ] of
+        //     the array type derivation.
+        //
+        // [1]: http://c0x.coding-guidelines.com/6.7.5.3.html
+        match *arg_ty.canonical_type(ctx).kind() {
+            TypeKind::Array(t, _) => {
+                let stream = if ctx.options().array_pointers_in_arguments {
+                    arg_ty.to_rust_ty_or_opaque(ctx, arg_item)
+                } else {
+                    t.to_rust_ty_or_opaque(ctx, &())
+                };
+                stream.to_ptr(ctx.resolve_type(t).is_const())
+            }
+            TypeKind::Pointer(inner) => {
+                let inner = ctx.resolve_item(inner);
+                let inner_ty = inner.expect_type();
+                if let TypeKind::ObjCInterface(ref interface) =
+                    *inner_ty.canonical_type(ctx).kind()
+                {
+                    let name = ctx.rust_ident(interface.name());
+                    quote! {
+                        #name
+                    }
+                } else {
+                    arg_item.to_rust_ty_or_opaque(ctx, &())
+                }
+            }
+            _ => arg_item.to_rust_ty_or_opaque(ctx, &()),
+        }
+    }
+
     pub(crate) fn fnsig_arguments(
         ctx: &BindgenContext,
         sig: &FunctionSig,
     ) -> Vec<proc_macro2::TokenStream> {
-        use super::ToPtr;
-
         let mut unnamed_arguments = 0;
         let mut args = sig
             .argument_types()
             .iter()
-            .map(|&(ref name, ty)| {
-                let arg_item = ctx.resolve_item(ty);
-                let arg_ty = arg_item.kind().expect_type();
-
-                // From the C90 standard[1]:
-                //
-                //     A declaration of a parameter as "array of type" shall be
-                //     adjusted to "qualified pointer to type", where the type
-                //     qualifiers (if any) are those specified within the [ and ] of
-                //     the array type derivation.
-                //
-                // [1]: http://c0x.coding-guidelines.com/6.7.5.3.html
-                let arg_ty = match *arg_ty.canonical_type(ctx).kind() {
-                    TypeKind::Array(t, _) => {
-                        let stream =
-                            if ctx.options().array_pointers_in_arguments {
-                                arg_ty.to_rust_ty_or_opaque(ctx, arg_item)
-                            } else {
-                                t.to_rust_ty_or_opaque(ctx, &())
-                            };
-                        stream.to_ptr(ctx.resolve_type(t).is_const())
-                    }
-                    TypeKind::Pointer(inner) => {
-                        let inner = ctx.resolve_item(inner);
-                        let inner_ty = inner.expect_type();
-                        if let TypeKind::ObjCInterface(ref interface) =
-                            *inner_ty.canonical_type(ctx).kind()
-                        {
-                            let name = ctx.rust_ident(interface.name());
-                            quote! {
-                                #name
-                            }
-                        } else {
-                            arg_item.to_rust_ty_or_opaque(ctx, &())
-                        }
-                    }
-                    _ => arg_item.to_rust_ty_or_opaque(ctx, &()),
-                };
+            .map(|(name, ty)| {
+                let arg_ty = fnsig_argument_type(ctx, ty);
 
                 let arg_name = match *name {
                     Some(ref name) => ctx.rust_mangle(name).into_owned(),

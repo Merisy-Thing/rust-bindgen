@@ -137,7 +137,7 @@ pub(crate) mod ast_ty {
     use crate::ir::context::BindgenContext;
     use crate::ir::function::FunctionSig;
     use crate::ir::layout::Layout;
-    use crate::ir::ty::FloatKind;
+    use crate::ir::ty::{FloatKind, IntKind};
     use proc_macro2::{self, TokenStream};
     use std::str::FromStr;
 
@@ -182,6 +182,63 @@ pub(crate) mod ast_ty {
                     quote! {
                         ::std::os::raw::#ident
                     }
+                }
+            }
+        }
+    }
+
+    pub(crate) fn int_kind_rust_type(
+        ctx: &BindgenContext,
+        ik: IntKind,
+        layout: Option<Layout>,
+    ) -> TokenStream {
+        match ik {
+            IntKind::Bool => quote! { bool },
+            IntKind::Char { .. } => raw_type(ctx, "c_char"),
+            IntKind::SChar => raw_type(ctx, "c_schar"),
+            IntKind::UChar => raw_type(ctx, "c_uchar"),
+            IntKind::Short => raw_type(ctx, "c_short"),
+            IntKind::UShort => raw_type(ctx, "c_ushort"),
+            IntKind::Int => raw_type(ctx, "c_int"),
+            IntKind::UInt => raw_type(ctx, "c_uint"),
+            IntKind::Long => raw_type(ctx, "c_long"),
+            IntKind::ULong => raw_type(ctx, "c_ulong"),
+            IntKind::LongLong => raw_type(ctx, "c_longlong"),
+            IntKind::ULongLong => raw_type(ctx, "c_ulonglong"),
+            IntKind::WChar => {
+                let layout =
+                    layout.expect("Couldn't compute wchar_t's layout?");
+                let ty = Layout::known_type_for_size(ctx, layout.size)
+                    .expect("Non-representable wchar_t?");
+                let ident = ctx.rust_ident_raw(ty);
+                quote! { #ident }
+            }
+
+            IntKind::I8 => quote! { i8 },
+            IntKind::U8 => quote! { u8 },
+            IntKind::I16 => quote! { i16 },
+            IntKind::U16 => quote! { u16 },
+            IntKind::I32 => quote! { i32 },
+            IntKind::U32 => quote! { u32 },
+            IntKind::I64 => quote! { i64 },
+            IntKind::U64 => quote! { u64 },
+            IntKind::Custom { name, .. } => {
+                proc_macro2::TokenStream::from_str(name).unwrap()
+            }
+            IntKind::U128 => {
+                if ctx.options().rust_features.i128_and_u128 {
+                    quote! { u128 }
+                } else {
+                    // Best effort thing, but wrong alignment
+                    // unfortunately.
+                    quote! { [u64; 2] }
+                }
+            }
+            IntKind::I128 => {
+                if ctx.options().rust_features.i128_and_u128 {
+                    quote! { i128 }
+                } else {
+                    quote! { [u64; 2] }
                 }
             }
         }
@@ -232,9 +289,9 @@ pub(crate) mod ast_ty {
         }
     }
 
-    pub(crate) fn int_expr(val: i64) -> TokenStream {
+    pub(crate) fn int_expr(val: i128) -> TokenStream {
         // Don't use quote! { #val } because that adds the type suffix.
-        let val = proc_macro2::Literal::i64_unsuffixed(val);
+        let val = proc_macro2::Literal::i128_unsuffixed(val);
         quote!(#val)
     }
 

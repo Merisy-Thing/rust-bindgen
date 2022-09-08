@@ -62,7 +62,16 @@ pub trait ParseCallbacks: fmt::Debug {
     /// The first parameter represents the name and argument list (including the
     /// parentheses) of the function-like macro. The second parameter represents
     /// the expansion of the macro as a sequence of tokens.
-    fn func_macro(&self, _name: &str, _value: &[&[u8]]) {}
+    fn func_macro(&self, _name: &str, _args: &[&str], _value: &[&[u8]]) {}
+
+    /// Specify the type of a macro argument.
+    ///
+    /// This is needed if you want to generate a function instead of a macro.
+    /// If all argument types and the return type of a macro can be inferred,
+    /// a function will be generated instead of a macro.
+    fn func_macro_arg_type(&self, _name: &str, _arg: &str) -> Option<String> {
+        None
+    }
 
     /// This function should return whether, given an enum variant
     /// name, and value, this enum variant will forcibly be a constant.

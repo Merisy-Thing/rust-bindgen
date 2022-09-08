@@ -5,10 +5,16 @@
     non_upper_case_globals
 )]
 
-pub const foo: &[u8; 4usize] = b"bar\0";
-pub const CHAR: u8 = 98u8;
-pub const CHARR: u8 = 0u8;
-pub const FLOAT: f64 = 5.09;
-pub const FLOAT_EXPR: f64 = 0.005;
+pub const foo: *const ::std::os::raw::c_char = {
+    const BYTES: [u8; 4] = *b"bar\0";
+    BYTES.as_ptr() as *const ::std::os::raw::c_char
+};
+pub const CHAR: ::std::os::raw::c_char = 'b' as ::std::os::raw::c_char;
+pub const CHARR: ::std::os::raw::c_char = '\0' as ::std::os::raw::c_char;
+pub const FLOAT: f32 = 5.09;
+pub const FLOAT_EXPR: f32 = 0.005;
 pub const LONG: u32 = 3;
-pub const INVALID_UTF8: [u8; 5usize] = [240u8, 40u8, 140u8, 40u8, 0u8];
+pub const INVALID_UTF8: *const ::std::os::raw::c_char = {
+    const BYTES: [u8; 5] = *b"\xF0(\x8C(\0";
+    BYTES.as_ptr() as *const ::std::os::raw::c_char
+};

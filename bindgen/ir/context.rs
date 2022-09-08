@@ -11,19 +11,22 @@ use super::derive::{
     CanDerive, CanDeriveCopy, CanDeriveDebug, CanDeriveDefault, CanDeriveEq,
     CanDeriveHash, CanDeriveOrd, CanDerivePartialEq, CanDerivePartialOrd,
 };
-use super::function::Function;
+use super::function::{Function, FunctionSig, Linkage};
 use super::int::IntKind;
 use super::item::{IsOpaque, Item, ItemAncestors, ItemSet};
 use super::item_kind::ItemKind;
+use super::macro_def::MacroDef;
 use super::module::{Module, ModuleKind};
 use super::template::{TemplateInstantiation, TemplateParameters};
 use super::traversal::{self, Edge, ItemTraversal};
 use super::ty::{FloatKind, Type, TypeKind};
 use crate::clang::{self, Cursor};
+use crate::codegen::utils::type_from_named;
+use crate::codegen::utils::{fnsig_argument_type, fnsig_return_ty_internal};
 use crate::codegen::CodegenError;
 use crate::BindgenOptions;
 use crate::{Entry, HashMap, HashSet};
-
+use clang_sys;
 use proc_macro2::{Ident, Span, TokenStream};
 use quote::ToTokens;
 use std::borrow::Cow;
@@ -31,6 +34,7 @@ use std::cell::{Cell, RefCell};
 use std::collections::{BTreeSet, HashMap as StdHashMap};
 use std::iter::IntoIterator;
 use std::mem;
+use std::str::FromStr;
 
 /// An identifier for some kind of IR item.
 #[derive(Debug, Copy, Clone, Eq, PartialOrd, Ord, Hash)]
@@ -349,12 +353,31 @@ pub(crate) struct BindgenContext {
     /// potentially break that assumption.
     currently_parsed_types: Vec<PartialType>,
 
-    /// A map with all the already parsed macro names. This is done to avoid
-    /// hard errors while parsing duplicated macros, as well to allow macro
-    /// expression parsing.
+    /// A map with all the already parsed macro names.
     ///
-    /// This needs to be an std::HashMap because the cexpr API requires it.
-    parsed_macros: StdHashMap<Vec<u8>, cexpr::expr::EvalResult>,
+    /// This is needed to handle redefined macros so they are not
+    /// generated multiple times.
+    parsed_macros: StdHashMap<String, ItemId>,
+
+    /// A map with all defined functions.
+    ///
+    /// This is needed for inferring types for function calls in macros.
+    functions: StdHashMap<String, Function>,
+
+    /// A map with all defined variable-like macros.
+    ///
+    /// This is needed to expand nested macros.
+    variable_macros: StdHashMap<String, cmacro::VarMacro>,
+
+    /// A map with all defined function-like macros.
+    ///
+    /// This is needed to expand nested macros.
+    function_macros: StdHashMap<String, cmacro::FnMacro>,
+
+    /// A map with all defined types.
+    ///
+    /// This is needed to resolve types used in macros.
+    type_names: StdHashMap<String, TypeId>,
 
     /// A set of all the included filenames.
     deps: BTreeSet<String>,
@@ -572,6 +595,10 @@ If you encounter an error missing from this list, please file an issue or a PR!"
             semantic_parents: Default::default(),
             currently_parsed_types: vec![],
             parsed_macros: Default::default(),
+            functions: Default::default(),
+            variable_macros: Default::default(),
+            function_macros: Default::default(),
+            type_names: Default::default(),
             replacements: Default::default(),
             collected_typerefs: false,
             in_codegen: false,
@@ -674,6 +701,17 @@ If you encounter an error missing from this list, please file an issue or a PR!"
             "Adding a type without declaration?"
         );
 
+        let macro_name = if let ItemKind::MacroDef(ref m) = item.kind() {
+            if let Some(id) = self.parsed_macros.get(m.name()) {
+                warn!("Macro {} redefined.", m.name());
+                self.items[id.0] = None;
+            }
+
+            Some(m.name().to_owned())
+        } else {
+            None
+        };
+
         let id = item.id();
         let is_type = item.kind().is_type();
         let is_unnamed = is_type && item.expect_type().name().is_none();
@@ -693,6 +731,10 @@ If you encounter an error missing from this list, please file an issue or a PR!"
             old_item.is_none(),
             "should not have already associated an item with the given id"
         );
+
+        if let Some(macro_name) = macro_name {
+            self.parsed_macros.insert(macro_name, id);
+        }
 
         // Unnamed items can have an USR, but they can't be referenced from
         // other sites explicitly and the USR can match if the unnamed items are
@@ -1453,6 +1495,14 @@ If you encounter an error missing from this list, please file an issue or a PR!"
         self.resolve_item(func_id).kind().expect_function()
     }
 
+    pub(crate) fn resolve_sig(&self, sig_id: TypeId) -> &FunctionSig {
+        let signature = self.resolve_type(sig_id).canonical_type(self);
+        match *signature.kind() {
+            TypeKind::Function(ref sig) => sig,
+            _ => panic!("Signature kind is not a Function: {:?}", signature),
+        }
+    }
+
     /// Resolve the given `ItemId` as a type, or `None` if there is no item with
     /// the given ID.
     ///
@@ -1918,13 +1968,13 @@ If you encounter an error missing from this list, please file an issue or a PR!"
     /// Needed to handle const methods in C++, wrapping the type .
     pub(crate) fn build_const_wrapper(
         &mut self,
-        with_id: ItemId,
         wrapped_id: TypeId,
         parent_id: Option<ItemId>,
         ty: &clang::Type,
     ) -> TypeId {
+        let id = self.next_item_id();
         self.build_wrapper(
-            with_id, wrapped_id, parent_id, ty, /* is_const = */ true,
+            id, wrapped_id, parent_id, ty, /* is_const = */ true,
         )
     }
 
@@ -1940,7 +1990,8 @@ If you encounter an error missing from this list, please file an issue or a PR!"
         let layout = ty.fallible_layout(self).ok();
         let location = ty.declaration().location();
         let type_kind = TypeKind::ResolvedTypeRef(wrapped_id);
-        let ty = Type::new(Some(spelling), layout, type_kind, is_const);
+
+        let ty = Type::new(Some(spelling.clone()), layout, type_kind, is_const);
         let item = Item::new(
             with_id,
             None,
@@ -1950,7 +2001,42 @@ If you encounter an error missing from this list, please file an issue or a PR!"
             Some(location),
         );
         self.add_builtin_item(item);
-        with_id.as_type_id_unchecked()
+        let type_id = with_id.as_type_id_unchecked();
+
+        self.type_names
+            .insert(spelling.replace("const ", ""), type_id);
+
+        type_id
+    }
+
+    pub(crate) fn add_function(&mut self, name: &str, sig: Function) {
+        self.functions.insert(name.to_owned(), sig);
+    }
+
+    pub(crate) fn function(&self, name: &str) -> Option<&Function> {
+        self.functions.get(name)
+    }
+
+    pub(crate) fn add_fn_macro(&mut self, fn_macro: cmacro::FnMacro) {
+        self.function_macros
+            .insert(fn_macro.name.to_owned(), fn_macro);
+    }
+
+    pub(crate) fn fn_macro(&self, name: &str) -> Option<&cmacro::FnMacro> {
+        self.function_macros.get(name)
+    }
+
+    pub(crate) fn add_var_macro(&mut self, var_macro: cmacro::VarMacro) {
+        self.variable_macros
+            .insert(var_macro.name.to_owned(), var_macro);
+    }
+
+    pub(crate) fn var_macro(&self, name: &str) -> Option<&cmacro::VarMacro> {
+        self.variable_macros.get(name)
+    }
+
+    pub(crate) fn type_by_name(&self, name: &str) -> Option<&TypeId> {
+        self.type_names.get(name)
     }
 
     /// Returns the next item ID to be used for an item.
@@ -2026,28 +2112,6 @@ If you encounter an error missing from this list, please file an issue or a PR!"
     /// Get the current Clang translation unit that is being processed.
     pub(crate) fn translation_unit(&self) -> &clang::TranslationUnit {
         &self.translation_unit
-    }
-
-    /// Have we parsed the macro named `macro_name` already?
-    pub(crate) fn parsed_macro(&self, macro_name: &[u8]) -> bool {
-        self.parsed_macros.contains_key(macro_name)
-    }
-
-    /// Get the currently parsed macros.
-    pub(crate) fn parsed_macros(
-        &self,
-    ) -> &StdHashMap<Vec<u8>, cexpr::expr::EvalResult> {
-        debug_assert!(!self.in_codegen_phase());
-        &self.parsed_macros
-    }
-
-    /// Mark the macro named `macro_name` as parsed.
-    pub(crate) fn note_parsed_macro(
-        &mut self,
-        id: Vec<u8>,
-        value: cexpr::expr::EvalResult,
-    ) {
-        self.parsed_macros.insert(id, value);
     }
 
     /// Are we in the codegen phase?
@@ -2359,6 +2423,15 @@ If you encounter an error missing from this list, please file an issue or a PR!"
                         ItemKind::Var(_) => {
                             self.options().allowlisted_vars.matches(&name)
                         }
+                        ItemKind::MacroDef(ref macro_def) => match macro_def {
+                            MacroDef::Fn(_) => self
+                                .options()
+                                .allowlisted_functions
+                                .matches(&name),
+                            MacroDef::Var(_) => {
+                                self.options().allowlisted_vars.matches(&name)
+                            }
+                        },
                         ItemKind::Type(ref ty) => {
                             if self.options().allowlisted_types.matches(&name) {
                                 return true;
@@ -2825,6 +2898,90 @@ If you encounter an error missing from this list, please file an issue or a PR!"
             .wrap_static_fns_suffix
             .as_deref()
             .unwrap_or(crate::DEFAULT_NON_EXTERN_FNS_SUFFIX)
+    }
+}
+
+impl cmacro::CodegenContext for BindgenContext {
+    fn ffi_prefix(&self) -> Option<TokenStream> {
+        Some(match self.options().ctypes_prefix {
+            Some(ref prefix) => {
+                let prefix = TokenStream::from_str(prefix.as_str()).unwrap();
+                quote! { #prefix:: }
+            }
+            None => quote! { ::std::os::raw:: },
+        })
+    }
+
+    fn trait_prefix(&self) -> Option<TokenStream> {
+        let trait_prefix = self.trait_prefix();
+        Some(quote! { ::#trait_prefix:: })
+    }
+
+    fn macro_arg_ty(&self, name: &str, arg: &str) -> Option<String> {
+        self.options()
+            .last_callback(|c| c.func_macro_arg_type(name, arg))
+    }
+
+    fn resolve_ty(&self, ty: &str) -> Option<String> {
+        if let Some(ty) = type_from_named(self, ty) {
+            return Some(ty.to_string());
+        }
+
+        if let Some(ty) = self.type_by_name(ty) {
+            let ty = ty
+                .into_resolver()
+                .through_type_aliases()
+                .through_type_refs()
+                .resolve(self)
+                .expect_type();
+
+            if let Some(ty) = ty.name().map(|n| n.to_owned()) {
+                return Some(ty);
+            }
+        }
+
+        None
+    }
+
+    fn function(&self, name: &str) -> Option<(Vec<String>, String)> {
+        let allowlisted_functions = &self.options().allowlisted_functions;
+        if !allowlisted_functions.is_empty() &&
+            !allowlisted_functions.matches(name)
+        {
+            return None;
+        }
+
+        if let Some(f) = self.function(name) {
+            // Cannot call functions with internal linkage.
+            if f.linkage() == Linkage::Internal {
+                return None;
+            }
+
+            let sig = self.resolve_sig(f.signature());
+
+            let arg_types = sig
+                .argument_types()
+                .iter()
+                .map(|(_, ty)| fnsig_argument_type(self, ty).to_string())
+                .collect();
+
+            let ret_type = fnsig_return_ty_internal(
+                self, sig, /* include_arrow = */ false,
+            )
+            .to_string();
+
+            return Some((arg_types, ret_type));
+        }
+
+        None
+    }
+
+    fn function_macro(&self, name: &str) -> Option<&cmacro::FnMacro> {
+        self.function_macros.get(name)
+    }
+
+    fn variable_macro(&self, name: &str) -> Option<&cmacro::VarMacro> {
+        self.variable_macros.get(name)
     }
 }
 

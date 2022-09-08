@@ -4,7 +4,7 @@ extern crate cc;
 use bindgen::callbacks::{
     DeriveInfo, IntKind, MacroParsingBehavior, ParseCallbacks,
 };
-use bindgen::{Builder, CargoCallbacks, EnumVariation};
+use bindgen::{Builder, EnumVariation};
 use std::collections::HashSet;
 use std::env;
 use std::path::PathBuf;
@@ -60,36 +60,41 @@ impl ParseCallbacks for MacroCallback {
         }
     }
 
-    fn func_macro(&self, name: &str, value: &[&[u8]]) {
+    fn func_macro(&self, name: &str, args: &[&str], value: &[&[u8]]) {
         match name {
             "TESTMACRO_NONFUNCTIONAL" => {
                 panic!("func_macro was called for a non-functional macro");
             }
-            "TESTMACRO_FUNCTIONAL_NONEMPTY(TESTMACRO_INTEGER)" => {
+            "TESTMACRO_FUNCTIONAL_NONEMPTY" => {
                 // Spaces are inserted into the right-hand side of a functional
                 // macro during reconstruction from the tokenization. This might
                 // change in the future, but it is safe by the definition of a
                 // token in C, whereas leaving the spaces out could change
                 // tokenization.
+                assert_eq!(args, &["TESTMACRO_INTEGER"]);
                 assert_eq!(value, &[b"-" as &[u8], b"TESTMACRO_INTEGER"]);
                 *self.seen_funcs.lock().unwrap() += 1;
             }
-            "TESTMACRO_FUNCTIONAL_EMPTY(TESTMACRO_INTEGER)" => {
+            "TESTMACRO_FUNCTIONAL_EMPTY" => {
+                assert_eq!(args, &["TESTMACRO_INTEGER"]);
                 assert_eq!(value, &[] as &[&[u8]]);
                 *self.seen_funcs.lock().unwrap() += 1;
             }
-            "TESTMACRO_FUNCTIONAL_TOKENIZED(a,b,c,d,e)" => {
+            "TESTMACRO_FUNCTIONAL_TOKENIZED" => {
+                assert_eq!(args, &["a", "b", "c", "d", "e"]);
                 assert_eq!(
                     value,
                     &[b"a" as &[u8], b"/", b"b", b"c", b"d", b"##", b"e"]
                 );
                 *self.seen_funcs.lock().unwrap() += 1;
             }
-            "TESTMACRO_FUNCTIONAL_SPLIT(a,b)" => {
+            "TESTMACRO_FUNCTIONAL_SPLIT" => {
+                assert_eq!(args, &["a", "b"]);
                 assert_eq!(value, &[b"b", b",", b"a"]);
                 *self.seen_funcs.lock().unwrap() += 1;
             }
-            "TESTMACRO_STRING_FUNC_NON_UTF8(x)" => {
+            "TESTMACRO_STRING_FUNC_NON_UTF8" => {
+                assert_eq!(args, &["x"]);
                 assert_eq!(
                     value,
                     &[b"(" as &[u8], b"x", b"\"\xff\xff\"", b")"]

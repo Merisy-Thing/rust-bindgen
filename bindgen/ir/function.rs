@@ -10,7 +10,8 @@ use crate::callbacks::{ItemInfo, ItemKind};
 use crate::clang::{self, Attribute};
 use crate::parse::{ClangSubItemParser, ParseError, ParseResult};
 use clang_sys::{self, CXCallingConv};
-
+use proc_macro2;
+use quote;
 use quote::TokenStreamExt;
 use std::io;
 use std::str::FromStr;
@@ -62,7 +63,7 @@ impl FunctionKind {
 }
 
 /// The style of linkage
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Linkage {
     /// Externally visible and can be linked against
     External,
@@ -74,7 +75,7 @@ pub(crate) enum Linkage {
 ///
 /// The argument names vector must be the same length as the ones in the
 /// signature.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(crate) struct Function {
     /// The name of this function.
     name: String,
@@ -251,7 +252,7 @@ impl quote::ToTokens for ClangAbi {
 }
 
 /// A function signature.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(crate) struct FunctionSig {
     /// The return type of the function.
     return_type: TypeId,
@@ -505,13 +506,7 @@ impl FunctionSig {
                 let class = class.as_type_id_unchecked();
 
                 let class = if is_const {
-                    let const_class_id = ctx.next_item_id();
-                    ctx.build_const_wrapper(
-                        const_class_id,
-                        class,
-                        None,
-                        &parent.cur_type(),
-                    )
+                    ctx.build_const_wrapper(class, None, &parent.cur_type())
                 } else {
                     class
                 };
@@ -728,6 +723,8 @@ impl ClangSubItemParser for Function {
 
         let function =
             Self::new(name.clone(), mangled_name, sig, kind, linkage);
+
+        context.add_function(&name, function.clone());
 
         Ok(ParseResult::New(function, Some(cursor)))
     }

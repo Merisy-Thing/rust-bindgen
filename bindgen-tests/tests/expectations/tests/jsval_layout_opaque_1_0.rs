@@ -136,7 +136,7 @@ impl<T> ::std::cmp::PartialEq for __BindgenUnionField<T> {
 impl<T> ::std::cmp::Eq for __BindgenUnionField<T> {}
 pub const JSVAL_TAG_SHIFT: u32 = 47;
 pub const JSVAL_PAYLOAD_MASK: u64 = 140737488355327;
-pub const JSVAL_TAG_MASK: i64 = -140737488355328;
+pub const JSVAL_TAG_MASK: u64 = 18446603336221196288;
 #[repr(u8)]
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 pub enum JSValueType {

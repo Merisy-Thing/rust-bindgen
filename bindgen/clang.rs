@@ -6,11 +6,12 @@
 
 use crate::ir::context::BindgenContext;
 use clang_sys::*;
+use std::convert::TryFrom;
 use std::ffi::{CStr, CString};
 use std::fmt;
 use std::hash::Hash;
 use std::hash::Hasher;
-use std::os::raw::{c_char, c_int, c_longlong, c_uint, c_ulong, c_ulonglong};
+use std::os::raw::{c_char, c_int, c_longlong, c_uint, c_ulong};
 use std::{mem, ptr, slice};
 
 /// Type representing a clang attribute.
@@ -855,14 +856,6 @@ impl Cursor {
         RawTokens::new(self)
     }
 
-    /// Gets the tokens that correspond to that cursor as  `cexpr` tokens.
-    pub(crate) fn cexpr_tokens(self) -> Vec<cexpr::token::Token> {
-        self.tokens()
-            .iter()
-            .filter_map(|token| token.as_cexpr_token())
-            .collect()
-    }
-
     /// Obtain the real path name of a cursor of InclusionDirective kind.
     ///
     /// Returns None if the cursor does not include a file, otherwise the file's full name
@@ -952,30 +945,6 @@ impl ClangToken {
             CStr::from_ptr(clang_getCString(self.spelling) as *const _)
         };
         c_str.to_bytes()
-    }
-
-    /// Converts a ClangToken to a `cexpr` token if possible.
-    pub(crate) fn as_cexpr_token(&self) -> Option<cexpr::token::Token> {
-        use cexpr::token;
-
-        let kind = match self.kind {
-            CXToken_Punctuation => token::Kind::Punctuation,
-            CXToken_Literal => token::Kind::Literal,
-            CXToken_Identifier => token::Kind::Identifier,
-            CXToken_Keyword => token::Kind::Keyword,
-            // NB: cexpr is not too happy about comments inside
-            // expressions, so we strip them down here.
-            CXToken_Comment => return None,
-            _ => {
-                warn!("Found unexpected token kind: {:?}", self);
-                return None;
-            }
-        };
-
-        Some(token::Token {
-            kind,
-            raw: self.spelling().to_vec().into_boxed_slice(),
-        })
     }
 }
 
@@ -2149,29 +2118,22 @@ impl EvalResult {
     }
 
     /// Try to get back the result as an integer.
-    pub(crate) fn as_int(&self) -> Option<i64> {
+    pub(crate) fn as_int(&self) -> Option<i128> {
         if self.kind() != CXEval_Int {
             return None;
         }
 
         if unsafe { clang_EvalResult_isUnsignedInt(self.x) } != 0 {
             let value = unsafe { clang_EvalResult_getAsUnsigned(self.x) };
-            if value > i64::max_value() as c_ulonglong {
+            if value as u128 > i128::MAX as u128 {
                 return None;
             }
 
-            return Some(value as i64);
+            return Some(value as i128);
         }
 
         let value = unsafe { clang_EvalResult_getAsLongLong(self.x) };
-        if value > i64::max_value() as c_longlong {
-            return None;
-        }
-        if value < i64::min_value() as c_longlong {
-            return None;
-        }
-        #[allow(clippy::unnecessary_cast)]
-        Some(value as i64)
+        i128::try_from(value).ok()
     }
 
     /// Evaluates the expression as a literal string, that may or may not be

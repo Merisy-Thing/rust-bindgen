@@ -5,5 +5,5 @@
     non_upper_case_globals
 )]
 
-pub const INFINITY: f64 = ::std::f64::INFINITY;
-pub const NAN: f64 = ::std::f64::NAN;
+pub const INFINITY: f32 = ::std::f32::INFINITY;
+pub const NAN: f32 = ::std::f32::NAN;

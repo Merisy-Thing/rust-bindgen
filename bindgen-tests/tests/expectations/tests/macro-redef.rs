@@ -5,6 +5,6 @@
     non_upper_case_globals
 )]
 
-pub const FOO: u32 = 4;
-pub const BAR: u32 = 5;
+pub const BAR: u32 = 6;
+pub const FOO: u32 = 5;
 pub const BAZ: u32 = 6;

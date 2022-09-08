@@ -18,10 +18,11 @@ use super::template::{AsTemplateParam, TemplateParameters};
 use super::traversal::{EdgeKind, Trace, Tracer};
 use super::ty::{Type, TypeKind};
 use crate::clang;
+use crate::ir::{macro_def::MacroDef, var::Var};
 use crate::parse::{ClangSubItemParser, ParseError, ParseResult};
-
+use clang_sys;
 use lazycell::LazyCell;
-
+use regex;
 use std::cell::Cell;
 use std::collections::BTreeSet;
 use std::fmt::Write;
@@ -193,6 +194,7 @@ impl AsTemplateParam for ItemKind {
             ItemKind::Module(..) |
             ItemKind::Function(..) |
             ItemKind::Var(..) => None,
+            ItemKind::MacroDef(..) => None,
         }
     }
 }
@@ -296,6 +298,7 @@ impl Trace for Item {
             ItemKind::Var(ref var) => {
                 tracer.visit_kind(var.ty().into(), EdgeKind::VarType);
             }
+            ItemKind::MacroDef(_) => {}
             ItemKind::Module(_) => {
                 // Module -> children edges are "weak", and we do not want to
                 // trace them. If we did, then allowlisting wouldn't work as
@@ -665,11 +668,14 @@ impl Item {
                     ctx.options().blocklisted_types.matches(&name) ||
                         ctx.is_replaced_type(path, self.id)
                 }
-                ItemKind::Function(..) => {
+                ItemKind::Function(..) |
+                ItemKind::MacroDef(MacroDef::Fn(..)) => {
                     ctx.options().blocklisted_functions.matches(&name)
                 }
                 // TODO: Add constant / namespace blocklisting?
-                ItemKind::Var(..) | ItemKind::Module(..) => false,
+                ItemKind::Var(..) |
+                ItemKind::MacroDef(MacroDef::Var(..)) |
+                ItemKind::Module(..) => false,
             }
     }
 
@@ -790,6 +796,7 @@ impl Item {
 
         match *self.kind() {
             ItemKind::Var(ref var) => var.name().to_owned(),
+            ItemKind::MacroDef(ref var) => var.name().to_owned(),
             ItemKind::Module(ref module) => {
                 module.name().map(ToOwned::to_owned).unwrap_or_else(|| {
                     format!("_bindgen_mod_{}", self.exposed_id(ctx))
@@ -820,6 +827,7 @@ impl Item {
             ItemKind::Type(ty) => ty.name().is_none(),
             ItemKind::Function(_) => false,
             ItemKind::Var(_) => false,
+            ItemKind::MacroDef(_) => false,
         }
     }
 
@@ -1013,8 +1021,11 @@ impl Item {
         let cc = &ctx.options().codegen_config;
         match *self.kind() {
             ItemKind::Module(..) => true,
-            ItemKind::Var(_) => cc.vars(),
+            ItemKind::Var(_) | ItemKind::MacroDef(MacroDef::Var(_)) => {
+                cc.vars()
+            }
             ItemKind::Type(_) => cc.types(),
+            ItemKind::MacroDef(MacroDef::Fn(_)) => cc.functions(),
             ItemKind::Function(ref f) => match f.kind() {
                 FunctionKind::Function => cc.functions(),
                 FunctionKind::Method(MethodKind::Constructor) => {
@@ -1274,7 +1285,10 @@ impl TemplateParameters for ItemKind {
             // If we start emitting bindings to explicitly instantiated
             // functions, then we'll need to check ItemKind::Function for
             // template params.
-            ItemKind::Function(_) | ItemKind::Module(_) | ItemKind::Var(_) => {
+            ItemKind::Function(_) |
+            ItemKind::Module(_) |
+            ItemKind::Var(_) |
+            ItemKind::MacroDef(_) => {
                 vec![]
             }
         }
@@ -1340,7 +1354,6 @@ impl Item {
         parent_id: Option<ItemId>,
         ctx: &mut BindgenContext,
     ) -> Result<ItemId, ParseError> {
-        use crate::ir::var::Var;
         use clang_sys::*;
 
         if !cursor.is_valid() {
@@ -1394,6 +1407,7 @@ impl Item {
         // I guess we can try.
         try_parse!(Function);
         try_parse!(Var);
+        try_parse!(MacroDef);
 
         // Types are sort of special, so to avoid parsing template classes
         // twice, handle them separately.
