@@ -4,7 +4,7 @@ extern crate cc;
 use bindgen::callbacks::{
     DeriveInfo, IntKind, MacroParsingBehavior, ParseCallbacks,
 };
-use bindgen::{Builder, EnumVariation};
+use bindgen::{Builder, CargoCallbacks, EnumVariation};
 use std::collections::HashSet;
 use std::env;
 use std::path::PathBuf;
