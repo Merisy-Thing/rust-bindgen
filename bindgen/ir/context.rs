@@ -26,7 +26,6 @@ use crate::codegen::utils::{fnsig_argument_type, fnsig_return_ty_internal};
 use crate::codegen::CodegenError;
 use crate::BindgenOptions;
 use crate::{Entry, HashMap, HashSet};
-use clang_sys;
 use proc_macro2::{Ident, Span, TokenStream};
 use quote::ToTokens;
 use std::borrow::Cow;
@@ -1495,6 +1494,10 @@ If you encounter an error missing from this list, please file an issue or a PR!"
         self.resolve_item(func_id).kind().expect_function()
     }
 
+    /// Resolve a function signature with the given ID.
+    ///
+    /// Panics if there is no type for the given `TypeId` or if the resolved
+    /// `Type` is not a function.
     pub(crate) fn resolve_sig(&self, sig_id: TypeId) -> &FunctionSig {
         let signature = self.resolve_type(sig_id).canonical_type(self);
         match *signature.kind() {
@@ -2009,32 +2012,39 @@ If you encounter an error missing from this list, please file an issue or a PR!"
         type_id
     }
 
+    /// Add a function signature in order to look it up when generating macros.
     pub(crate) fn add_function(&mut self, name: &str, sig: Function) {
         self.functions.insert(name.to_owned(), sig);
     }
 
+    /// Get a function signature by its name.
     pub(crate) fn function(&self, name: &str) -> Option<&Function> {
         self.functions.get(name)
     }
 
+    /// Add a function-like macro.
     pub(crate) fn add_fn_macro(&mut self, fn_macro: cmacro::FnMacro) {
         self.function_macros
             .insert(fn_macro.name.to_owned(), fn_macro);
     }
 
+    /// Get a function-like macro by its name.
     pub(crate) fn fn_macro(&self, name: &str) -> Option<&cmacro::FnMacro> {
         self.function_macros.get(name)
     }
 
+    /// Add a variable-like macro.
     pub(crate) fn add_var_macro(&mut self, var_macro: cmacro::VarMacro) {
         self.variable_macros
             .insert(var_macro.name.to_owned(), var_macro);
     }
 
+    /// Get a variable-like macro by its name.
     pub(crate) fn var_macro(&self, name: &str) -> Option<&cmacro::VarMacro> {
         self.variable_macros.get(name)
     }
 
+    /// Get a type by its name.
     pub(crate) fn type_by_name(&self, name: &str) -> Option<&TypeId> {
         self.type_names.get(name)
     }

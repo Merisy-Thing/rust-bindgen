@@ -21,6 +21,7 @@ pub(crate) enum VarType {
     /// A floating point number.
     Float(f64),
     /// A character.
+    #[allow(unused)]
     Char(u8),
     /// A string, not necessarily well-formed utf-8.
     String(Vec<u8>),
