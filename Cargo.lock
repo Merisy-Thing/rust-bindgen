@@ -136,6 +136,8 @@ dependencies = [
 [[package]]
 name = "cmacro"
 version = "0.1.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f0da8639e3f077e8a6b08411fd1767c8bdc90cd6a6689ea63acfe98248e95a7b"
 dependencies = [
  "nom",
  "proc-macro2",
