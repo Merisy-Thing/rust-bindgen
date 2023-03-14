@@ -62,10 +62,10 @@ impl CodeGenerator for MacroDef {
 
         match self {
             Self::Fn(name) => {
-                if result.seen_function(&canonical_name) {
+                if result.seen_fn_macro(&canonical_name) {
                     return;
                 }
-                result.saw_function(&canonical_name);
+                result.saw_fn_macro(&canonical_name);
 
                 let mut fn_macro = ctx.fn_macro(name).unwrap().clone();
                 let generated_value = match fn_macro.generate(ctx) {

@@ -262,6 +262,7 @@ struct CodegenResult<'a> {
     /// Being these two different declarations.
     functions_seen: HashSet<String>,
     vars_seen: HashSet<String>,
+    fn_macros_seen: HashSet<String>,
 
     /// Used for making bindings to overloaded functions. Maps from a canonical
     /// function name to the number of overloads we have already codegen'd for
@@ -285,6 +286,7 @@ impl<'a> CodegenResult<'a> {
             items_seen: Default::default(),
             functions_seen: Default::default(),
             vars_seen: Default::default(),
+            fn_macros_seen: Default::default(),
             overload_counters: Default::default(),
             items_to_serialize: Default::default(),
         }
@@ -328,6 +330,14 @@ impl<'a> CodegenResult<'a> {
 
     fn saw_function(&mut self, name: &str) {
         self.functions_seen.insert(name.into());
+    }
+
+    fn seen_fn_macro(&self, name: &str) -> bool {
+        self.fn_macros_seen.contains(name)
+    }
+
+    fn saw_fn_macro(&mut self, name: &str) {
+        self.fn_macros_seen.insert(name.into());
     }
 
     /// Get the overload number for the given function name. Increments the

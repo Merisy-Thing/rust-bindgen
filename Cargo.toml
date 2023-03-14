@@ -13,3 +13,6 @@ default-members = [
     "bindgen-cli",
     "bindgen-tests",
 ]
+
+# [patch.crates-io]
+# cmacro = { path = "../cmacro-rs" }
