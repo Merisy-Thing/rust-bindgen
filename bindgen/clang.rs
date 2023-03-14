@@ -2125,11 +2125,7 @@ impl EvalResult {
 
         if unsafe { clang_EvalResult_isUnsignedInt(self.x) } != 0 {
             let value = unsafe { clang_EvalResult_getAsUnsigned(self.x) };
-            if value as u128 > i128::MAX as u128 {
-                return None;
-            }
-
-            return Some(value as i128);
+            return i128::try_from(value).ok()
         }
 
         let value = unsafe { clang_EvalResult_getAsLongLong(self.x) };
