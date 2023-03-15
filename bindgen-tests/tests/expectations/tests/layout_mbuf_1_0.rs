@@ -136,6 +136,14 @@ impl<T> ::std::cmp::PartialEq for __BindgenUnionField<T> {
 impl<T> ::std::cmp::Eq for __BindgenUnionField<T> {}
 pub const RTE_CACHE_LINE_MIN_SIZE: u32 = 64;
 pub const RTE_CACHE_LINE_SIZE: u32 = 64;
+#[doc(hidden)]
+#[macro_export]
+macro_rules! __cmacro____rte_aligned {
+    ($ a : expr) => {
+        __attribute__((__aligned__(($a).into())).into())
+    };
+}
+pub use __cmacro____rte_aligned as __rte_aligned;
 pub type phys_addr_t = u64;
 pub type MARKER = [*mut ::std::os::raw::c_void; 0usize];
 pub type MARKER8 = [u8; 0usize];

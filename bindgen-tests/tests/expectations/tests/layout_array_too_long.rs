@@ -6,6 +6,14 @@
 )]
 
 pub const RTE_CACHE_LINE_SIZE: u32 = 64;
+#[doc(hidden)]
+#[macro_export]
+macro_rules! __cmacro____rte_aligned {
+    ($ a : expr) => {
+        __attribute__((__aligned__(($a).into())).into())
+    };
+}
+pub use __cmacro____rte_aligned as __rte_aligned;
 pub const RTE_LIBRTE_IP_FRAG_MAX_FRAG: u32 = 4;
 pub const IP_LAST_FRAG_IDX: _bindgen_ty_1 = _bindgen_ty_1::IP_LAST_FRAG_IDX;
 pub const IP_FIRST_FRAG_IDX: _bindgen_ty_1 = _bindgen_ty_1::IP_FIRST_FRAG_IDX;

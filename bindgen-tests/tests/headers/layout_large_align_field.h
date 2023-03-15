@@ -1,4 +1,4 @@
-// bindgen-flags: --rustified-enum ".*" --rust-target 1.40 --blocklist-function "__rte_aligned"
+// bindgen-flags: --rustified-enum ".*" --rust-target 1.40
 
 typedef unsigned char uint8_t;
 typedef unsigned short uint16_t;
