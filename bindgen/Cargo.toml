@@ -26,7 +26,7 @@ path = "lib.rs"
 
 [dependencies]
 bitflags = "1.0.3"
-cmacro = "0.1.3"
+cmacro = "0.1.4"
 clang-sys = { version = "1", features = ["clang_6_0"] }
 lazycell = "1"
 lazy_static = "1"
