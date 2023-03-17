@@ -4186,7 +4186,6 @@ fn objc_method_codegen(
     let fn_ret = utils::fnsig_return_ty(ctx, signature);
 
     let sig = if method.is_class_method() {
-        let fn_args = fn_args.clone();
         quote! {
             ( #( #fn_args ),* ) #fn_ret
         }
