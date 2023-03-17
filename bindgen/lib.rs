@@ -861,8 +861,8 @@ impl Builder {
     }
 
     fn_with_regex_arg! {
-        /// Hide the given function from the generated bindings. Regular expressions
-        /// are supported.
+        /// Hide the given function (or function-like macro) from the generated bindings.
+        /// Regular expressions are supported.
         ///
         /// Methods can be blocklisted by prefixing the name of the type implementing
         /// them followed by an underscore. So if `Foo` has a method `bar`, it can
@@ -920,9 +920,9 @@ impl Builder {
     }
 
     fn_with_regex_arg! {
-        /// Allowlist the given function so that it (and all types that it
-        /// transitively refers to) appears in the generated bindings. Regular
-        /// expressions are supported.
+        /// Allowlist the given function (or function-like macro) so that it (and all
+        /// types that it transitively refers to) appears in the generated bindings.
+        /// Regular expressions are supported.
         ///
         /// Methods can be allowlisted by prefixing the name of the type
         /// implementing them followed by an underscore. So if `Foo` has a method
@@ -936,9 +936,9 @@ impl Builder {
     }
 
     fn_with_regex_arg! {
-        /// Allowlist the given variable so that it (and all types that it
-        /// transitively refers to) appears in the generated bindings. Regular
-        /// expressions are supported.
+        /// Allowlist the given variable (or variable-like macro) so that it (and all
+        /// types that it transitively refers to) appears in the generated bindings.
+        /// Regular expressions are supported.
         ///
         /// To allowlist variables prefixed with "mylib" use `"mylib_.*"`.
         pub fn allowlist_var<T: AsRef<str>>(mut self, arg: T) -> Builder {
