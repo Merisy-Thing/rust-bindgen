@@ -27,7 +27,7 @@ path = "lib.rs"
 [dependencies]
 annotate-snippets = { version = "0.9.1", features = ["color"], optional = true }
 bitflags = "2.2.1"
-cmacro = "0.2.2"
+cmacro = { version = "0.2.2", git = "https://github.com/Merisy-Thing/cmacro-rs.git" }
 clang-sys = { version = "1", features = ["clang_6_0"] }
 itertools = { version = ">=0.10,<0.14", default-features = false }
 log = { version = "0.4", optional = true }
