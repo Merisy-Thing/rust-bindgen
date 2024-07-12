@@ -3234,7 +3234,7 @@ impl cmacro::CodegenContext for BindgenContext {
     fn ffi_prefix(&self) -> Option<syn::Path> {
         Some(match self.options().ctypes_prefix {
             Some(ref prefix) => syn::parse_str(prefix.as_str()).unwrap(),
-            None => syn::parse_quote! { ::std::os::raw },
+            None => syn::parse_quote! { ::core::ffi },
         })
     }
 
